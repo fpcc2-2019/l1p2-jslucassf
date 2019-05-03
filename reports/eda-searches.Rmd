@@ -15,12 +15,31 @@ theme_set(theme_bw())
 ```
 
 ```{r ETL}
-buscas = read_csv(here::here("data/search_data.csv"))
+buscas = read_csv(here::here("data/search_data.csv")) %>% 
+    # As variáveis relacionadas ao tempo na verdade se referem às buscas
+    rename(search_timestamp = session_start_timestamp,
+           search_date = session_start_date)
 ```
 
 ```{r}
-buscas %>% 
-    ggplot(aes(x = results)) + 
-    geom_histogram(binwidth = 5) 
+daily_metrics <- buscas %>%
+    group_by(date(search_date), session_id) %>%
+    summarise(n_clicks = sum(num_clicks)) %>%
+    rename(day = "date(search_date)") %>% 
+        group_by(day) %>% 
+        summarise(clicktrough_rate = sum(n_clicks > 0)/n(),
+                n_searches = n())
+
+daily_metrics_groupwise <- buscas %>%
+    group_by(date(search_date), group) %>% 
+    summarise(clicktrough_rate = sum(num_clicks > 0)/n(),
+              zero_results_rate = sum(results == 0)/n(),
+              n_searches = n())
+```
+
+# 1. What is our daily overall clickthrough rate? How does it vary between the groups?
+```{r}
+metricas_diarias %>% 
+    ggplot(aes())
 ```
 
