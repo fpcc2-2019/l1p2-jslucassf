@@ -77,15 +77,31 @@ buscas <- buscas %>%
   filter(max(first_click, na.rm = TRUE) <= 100)
 ```
 
+# 1. Qual é a nossa _clickthrough rate_ média diária? Como ela varia entre os grupos?
+
+Antes de mais nada, precisamos definir _clickthrough rate_. Este valor definido pela Wikimedia foundation, pode ser entendido como *a proporção das sessões em que o usuário clicou em algum resultado das buscas realizadas.*
+
 ```{r}
 daily_metrics <- buscas %>%
-    group_by(date(search_date), session_id) %>%
-    summarise(n_clicks = sum(num_clicks)) %>%
-    rename(day = "date(search_date)") %>% 
-        group_by(day) %>% 
-        summarise(clickthrough_rate = sum(n_clicks > 0)/n(),
+  group_by(date(search_date), session_id) %>%
+  summarise(n_clicks = sum(num_clicks)) %>%
+  rename(day = "date(search_date)") %>% 
+      group_by(day) %>% 
+      summarise(clickthrough_rate = sum(n_clicks > 0)/n(),
                 n_searches = n())
 
+daily_metrics %>% 
+  ggplot(aes(x = day, y = clickthrough_rate)) +
+  geom_bar(stat = "identity", fill = "#686de0") +
+  expand_limits(y = c(0.1, 1.0)) +
+  scale_y_continuous(breaks = c(0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0)) +
+  xlab("Dia") + 
+  ylab("Clickthrough Rate")
+```
+A _clickthrough rate_ diária é baixa com os dados analisados, em nenhum dos dias, este valor ultrapassa a marca de 50% das sessões. Em outras palavras, na maioria das sessões de busca, os usuários não clicam nos resultados apresentados.
+
+Com o objetivo de avaliar algum procedimento interno, a Wikimedia foundation dividiu os usuários nos grupos A e B. Estes resultados são diferentes se levarmos em consideração os diferentes grupos?
+```{r}
 daily_metrics_groupwise <- buscas %>%
     group_by(date(search_date), session_id, group) %>%
     summarise(n_clicks = sum(num_clicks)) %>%
@@ -93,16 +109,14 @@ daily_metrics_groupwise <- buscas %>%
         group_by(day, group) %>% 
         summarise(clickthrough_rate = sum(n_clicks > 0)/n(),
                 n_searches = n())
+
+daily_metrics_groupwise %>% 
+  ggplot(aes(x = day, y = clickthrough_rate, fill = group)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  expand_limits(y = c(0.1, 1.0)) +
+  scale_y_continuous(breaks = c(0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0)) +
+  labs(x = "Dia", y = "Clickthrough Rate", fill = "Grupo")
+  
 ```
 
-# 1. What is our daily overall clickthrough rate? How does it vary between the groups?
-
-
-```{r}
-daily_metrics %>% 
-    ggplot(aes(x = day, y = clickthrough_rate)) +
-    geom_bar(stat = "identity", fill = "#686de0") +
-    expand_limits(y = c(0.1, 1.0)) +
-    scale_y_continuous(breaks = c(0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0))
-```
-
+Os valores de fato se alteram significantemente quando levamos os grupos em consideração. Os membros do grupo A clicam consideravelmente mais vezes do que os do grupo B, passando a marca dos 50% em todos os dias!
