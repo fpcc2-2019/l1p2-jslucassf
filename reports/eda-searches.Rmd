@@ -1,6 +1,8 @@
 ---
 title: "EDA buscas"
-output: html_notebook
+output:
+  html_document:
+    df_print: paged
 ---
 
 O objeto principal da análise são as buscas e a navegação depois da busca. Criamos esses dados a partir dos dados originais da wikimedia em `/data/search_data.csv`. 
@@ -21,25 +23,83 @@ buscas = read_csv(here::here("data/search_data.csv")) %>%
            search_date = session_start_date)
 ```
 
+# Os Dados
+
+Antes de respondermos as perguntas principais, vamos explorar um pouco os dados para melhor entender-los.
+
+```{r}
+summary(buscas %>% select(search_index, session_length, results, num_clicks, first_click))
+```
+
+Após uma breve leiura de um sumário dos dados, podemos observar algumas coisas interessantes. A variável _search_index_, que representa a quantidade de buscas que um usuário realizou em uma sessão, apresenta um valor máximo de 484. Em outras palavras, um usuário provávelmente pesquisou 484 vezes em uma única sessão. Este valor nos parece irreal, vamos analisar melhor esta variável.
+
+Aparentemente poucas sessões possuem cliques nos resultados das buscas. Está questão será abordada em uma das perguntas que tentaremos responder.
+
+Mais uma ocorrência interessante está na variável _first_click_, que representa a posição do link que o usuário clicou primeiro após sua busca. Esperamos que os primeiros sejam os mais clicados, porém a variável possui um valor máximo de 4103. Também investigaremos melhor este caso.
+
+## Quantas buscas são feitas nas sessões?
+```{r}
+buscas %>%
+    group_by(session_id) %>% 
+    summarise(n_searches = max(search_index)) %>%
+    ggplot(aes(x = n_searches)) +
+    geom_histogram(fill = "#686de0") + 
+    scale_y_sqrt()
+```
+
+Como era de se esperar, a grande maioria das sessões possuem poucas buscas, entretanto confirmamos que algumas possuem valores muito elevados, teorizamos que tais sessões podem corresponder a web crowlers. Tais agentes não refletem o comportamento dos humanos, que é o foco do estudo, portanto, *removeremos dos dados as sessões que realizarem mais de 100 buscas*.
+
+```{r}
+buscas <- buscas %>% 
+    group_by(session_id) %>% 
+    filter(max(search_index) <= 100) %>% 
+    ungroup()
+```
+
+## Qual a posição dos links que as pessoas clicam primeiro?
+```{r}
+buscas %>%
+    na.omit() %>% 
+    ggplot(aes(x = first_click)) +
+    geom_histogram(fill = "#686de0") + 
+    scale_y_sqrt()
+```
+
+Mais uma vez, os maiores valores não parecem fazer sentido. Como decisão pessoal, removeremos as sessões que tiveram primeiros cliques nos links de posição acima de 100.
+
+```{r}
+buscas <- buscas %>% 
+    group_by(session_id) %>% 
+    filter(max(first_click, na.rm = TRUE) <= 100) %>% 
+    ungroup()
+```
+
 ```{r}
 daily_metrics <- buscas %>%
     group_by(date(search_date), session_id) %>%
     summarise(n_clicks = sum(num_clicks)) %>%
     rename(day = "date(search_date)") %>% 
         group_by(day) %>% 
-        summarise(clicktrough_rate = sum(n_clicks > 0)/n(),
+        summarise(clickthrough_rate = sum(n_clicks > 0)/n(),
                 n_searches = n())
 
 daily_metrics_groupwise <- buscas %>%
-    group_by(date(search_date), group) %>% 
-    summarise(clicktrough_rate = sum(num_clicks > 0)/n(),
-              zero_results_rate = sum(results == 0)/n(),
-              n_searches = n())
+    group_by(date(search_date), session_id, group) %>%
+    summarise(n_clicks = sum(num_clicks)) %>%
+    rename(day = "date(search_date)") %>% 
+        group_by(day, group) %>% 
+        summarise(clickthrough_rate = sum(n_clicks > 0)/n(),
+                n_searches = n())
 ```
 
 # 1. What is our daily overall clickthrough rate? How does it vary between the groups?
+
+
 ```{r}
-metricas_diarias %>% 
-    ggplot(aes())
+daily_metrics %>% 
+    ggplot(aes(x = day, y = clickthrough_rate)) +
+    geom_bar(stat = "identity", fill = "#686de0") +
+    expand_limits(y = c(0.1, 1.0)) +
+    scale_y_continuous(breaks = c(0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0))
 ```
 
