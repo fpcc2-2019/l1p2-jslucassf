@@ -52,8 +52,7 @@ Como era de se esperar, a grande maioria das sessões possuem poucas buscas, ent
 ```{r}
 buscas <- buscas %>% 
     group_by(session_id) %>% 
-    filter(max(search_index) <= 100) %>% 
-    ungroup()
+    filter(max(search_index) <= 100)
 ```
 
 ## Qual a posição dos links que as pessoas clicam primeiro?
@@ -66,12 +65,16 @@ buscas %>%
 ```
 
 Mais uma vez, os maiores valores não parecem fazer sentido. Como decisão pessoal, removeremos as sessões que tiveram primeiros cliques nos links de posição acima de 100.
+Atenção para o fato de que há muitos NAs na coluna que desejamos examinar. Como ela codifica a posição do primeiro clique dado pelo usuário, antes de mais nada substituiremos todos os dados faltantes por 0.
 
 ```{r}
 buscas <- buscas %>% 
-    group_by(session_id) %>% 
-    filter(max(first_click, na.rm = TRUE) <= 100) %>% 
-    ungroup()
+  mutate(first_click = if_else(is.na(first_click), 0, first_click))
+
+  
+buscas <- buscas %>% 
+  group_by(session_id) %>% 
+  filter(max(first_click, na.rm = TRUE) <= 100)
 ```
 
 ```{r}
