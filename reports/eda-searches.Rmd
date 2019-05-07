@@ -1,17 +1,18 @@
 ---
-title: "EDA buscas"
+title: "Sessões de Busca na Wikimedia"
+author: "José Lucas Silva Freitas"
 output:
   html_document:
+    toc: true
+    toc_float: true
+    theme: cosmo
     df_print: paged
 ---
 
-O objeto principal da análise são as buscas e a navegação depois da busca. Criamos esses dados a partir dos dados originais da wikimedia em `/data/search_data.csv`. 
-
-Aqui, exploramos esses dados. 
-
-```{r setup}
+```{r setup, echo = FALSE, message = FALSE}
 library(tidyverse)
 library(here)
+library(knitr)
 library(lubridate)
 theme_set(theme_bw())
 ```
@@ -20,8 +21,18 @@ theme_set(theme_bw())
 buscas = read_csv(here::here("data/search_data.csv")) %>% 
     # As variáveis relacionadas ao tempo na verdade se referem às buscas
     rename(search_timestamp = session_start_timestamp,
-           search_date = session_start_date)
+           search_date = session_start_date) %>% 
+  mutate(day = as.factor(date(search_date)))
 ```
+
+A Wikimedia Foundation é uma organização que hospeda e promove muitos projetos na internet. Entre eles, a Wikipedia. Como teste de seleção para uma vaga de analista de dados, a fundação criou um exercício de análise com alguns dados internos. O exercício consiste na produção de um relatório que responda as seguintes perguntas:
+
+1. _What is our daily overall clickthrough rate? How does it vary between the groups?_
+2. _Which results do people tend to try first? How does it change day-to-day?_
+3. _What is our daily overall zero results rate? How does it vary between the groups?_
+4. _Let session length be approximately the time between the first event and the last event in a session. Choose a variable from the dataset and describe its relationship to session length. Visualize the relationship._
+
+Buscaremos analisar os dados disponibilizados e tratar das questões. 
 
 # Os Dados
 
@@ -32,6 +43,8 @@ summary(buscas %>% select(search_index, session_length, results, num_clicks, fir
 ```
 
 Após uma breve leiura de um sumário dos dados, podemos observar algumas coisas interessantes. A variável _search_index_, que representa a quantidade de buscas que um usuário realizou em uma sessão, apresenta um valor máximo de 484. Em outras palavras, um usuário provávelmente pesquisou 484 vezes em uma única sessão. Este valor nos parece irreal, vamos analisar melhor esta variável.
+
+O valor máximo do tamanho da sessão ( _session_length_ ) também é muito alto. Como a unidade da variável é segundos, podemos calcular que a maior sessão tem em torno de 140 horas de duração. Um valor que parece absurdo. Outra questão importante é o valor mínimo da variável. Não nos parece fazer muito sentido, que existam sessões com 0 segundos de duração.
 
 Aparentemente poucas sessões possuem cliques nos resultados das buscas. Está questão será abordada em uma das perguntas que tentaremos responder.
 
@@ -47,13 +60,33 @@ buscas %>%
     scale_y_sqrt()
 ```
 
-Como era de se esperar, a grande maioria das sessões possuem poucas buscas, entretanto confirmamos que algumas possuem valores muito elevados, teorizamos que tais sessões podem corresponder a web crowlers. Tais agentes não refletem o comportamento dos humanos, que é o foco do estudo, portanto, *removeremos dos dados as sessões que realizarem mais de 100 buscas*.
+Como era de se esperar, a grande maioria das sessões possuem poucas buscas, entretanto confirmamos que algumas possuem valores muito elevados, teorizamos que tais sessões podem corresponder a web crowlers. Tais agentes não refletem o comportamento dos humanos, foco do estudo, portanto, *removeremos dos dados as sessões que realizarem mais de 100 buscas*.
 
 ```{r}
 buscas <- buscas %>% 
     group_by(session_id) %>% 
     filter(max(search_index) <= 100)
 ```
+
+## Qual o tamanho das sessões?
+```{r}
+buscas %>%
+  group_by(session_id) %>% 
+  summarise(session_length = first(session_length)) %>% 
+  ggplot(aes(y = session_length)) +
+  geom_boxplot() +
+  scale_x_discrete() +
+  scale_y_continuous()
+```
+
+Existem algumas sessões desproporcionalmente grandes, estas devem ser removidas. Estabelecemos que um tempo razoável que um humano ficaria em uma sessão seria de no máximo trinta minutos. Então manteremos apenas as sessões com no máximo 1800 segundos e no mínimo 1 segundo.
+
+```{r}
+buscas <- buscas %>% 
+  filter(session_length <= 1800 && session_length > 0)
+```
+
+
 
 ## Qual a posição dos links que as pessoas clicam primeiro?
 ```{r}
@@ -77,15 +110,15 @@ buscas <- buscas %>%
   filter(max(first_click, na.rm = TRUE) <= 100)
 ```
 
+
 # 1. Qual é a nossa _clickthrough rate_ média diária? Como ela varia entre os grupos?
 
-Antes de mais nada, precisamos definir _clickthrough rate_. Este valor definido pela Wikimedia foundation, pode ser entendido como *a proporção das sessões em que o usuário clicou em algum resultado das buscas realizadas.*
+Antes de mais nada, precisamos definir _clickthrough rate_. Este valor definido pela Wikimedia foundation, pode ser entendido como **a proporção das sessões em que o usuário clicou em algum resultado das buscas realizadas.**
 
 ```{r}
 daily_metrics <- buscas %>%
-  group_by(date(search_date), session_id) %>%
+  group_by(day, session_id) %>%
   summarise(n_clicks = sum(num_clicks)) %>%
-  rename(day = "date(search_date)") %>% 
       group_by(day) %>% 
       summarise(clickthrough_rate = sum(n_clicks > 0)/n(),
                 n_searches = n())
@@ -94,18 +127,17 @@ daily_metrics %>%
   ggplot(aes(x = day, y = clickthrough_rate)) +
   geom_bar(stat = "identity", fill = "#686de0") +
   expand_limits(y = c(0.1, 1.0)) +
-  scale_y_continuous(breaks = c(0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0)) +
+  scale_y_continuous(breaks = seq(from = 0.1, to = 1.0, by = 0.1)) +
   xlab("Dia") + 
   ylab("Clickthrough Rate")
 ```
-A _clickthrough rate_ diária é baixa com os dados analisados, em nenhum dos dias, este valor ultrapassa a marca de 50% das sessões. Em outras palavras, na maioria das sessões de busca, os usuários não clicam nos resultados apresentados.
+A _clickthrough rate_ diária está sempre entre 60% e 70% com pouca variação entre os dias.
 
 Com o objetivo de avaliar algum procedimento interno, a Wikimedia foundation dividiu os usuários nos grupos A e B. Estes resultados são diferentes se levarmos em consideração os diferentes grupos?
 ```{r}
 daily_metrics_groupwise <- buscas %>%
-    group_by(date(search_date), session_id, group) %>%
+    group_by(day, session_id, group) %>%
     summarise(n_clicks = sum(num_clicks)) %>%
-    rename(day = "date(search_date)") %>% 
         group_by(day, group) %>% 
         summarise(clickthrough_rate = sum(n_clicks > 0)/n(),
                 n_searches = n())
@@ -114,9 +146,103 @@ daily_metrics_groupwise %>%
   ggplot(aes(x = day, y = clickthrough_rate, fill = group)) +
   geom_bar(stat = "identity", position = "dodge") +
   expand_limits(y = c(0.1, 1.0)) +
-  scale_y_continuous(breaks = c(0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0)) +
+  scale_y_continuous(breaks = seq(from = 0.1, to = 1.0, by = 0.1)) +
   labs(x = "Dia", y = "Clickthrough Rate", fill = "Grupo")
   
 ```
 
-Os valores de fato se alteram significantemente quando levamos os grupos em consideração. Os membros do grupo A clicam consideravelmente mais vezes do que os do grupo B, passando a marca dos 50% em todos os dias!
+A faixa de valores se mantem a mesma porém os primeiros dias (1, 2 e 3) apresentam diferenças consideráveis entre os grupos. De qualquer forma, no geral o grupo A parece clicar mais nos resultados das buscas, do que os indivíduos do grupo B.
+
+# 2. Em que resultados as pessoas tem a tendência de clicar primeiro? Como essa tendência varia diariamente?
+
+Antes de abordar esta questão, lembramos que de acordo com o que aprendemos até aqui, uma elevada quantidade de buscas não possui cliques, portanto, consideraremos apenas aquelas buscas com cliques.
+
+```{r}
+buscas %>%
+  filter(first_click > 0) %>% 
+  ggplot(aes(x = day, y = first_click)) +
+  geom_boxplot() +
+  scale_y_log10() + 
+  labs(x = "Dia", y = "Posição do Primeiro Clique")
+```
+
+Percebemos então que em todos os dias, apesar de existirem muitos outliers, a maioria dos usuários que clicam, clicam no *primeiro resultado* da busca.
+Também podemos visualizar isto com a ajuda de um histograma.
+```{r}
+buscas %>%
+  filter(first_click > 0) %>% 
+  ggplot(aes(x = first_click)) +
+  geom_histogram(binwidth = 1, fill = "#686de0") + 
+  scale_x_continuous(breaks = seq(from = 1, to = 100, by = 5)) +
+  labs(x = "Posição do Primeiro Clique", y = "Número de Buscas")
+```
+
+
+# 3. Qual é a nossa _zero results rate_ média diária? Como ela varia entre os grupos?
+
+De forma similar à questão 1, precisamos primeiro definir _zero results rate_. Esta por sua vez, é **proporção de buscas que não retornam nenhum resultado**.
+
+```{r}
+daily_zero_rate <- buscas %>%
+  group_by(day) %>%
+  summarise(zero_results_rate = sum(results == 0)/n())
+
+daily_zero_rate %>% 
+  ggplot(aes(x = day, y = zero_results_rate)) +
+  geom_bar(stat = "identity", fill = "#686de0") +
+  expand_limits(y = c(0.1, 1.0)) +
+  scale_y_continuous(breaks = seq(from = 0.1, to = 1.0, by = 0.1)) +
+  xlab("Dia") + 
+  ylab("Zero Results Rate")
+```
+
+A proporção de buscas com nenhum resultado de fato é baixa. Partimos então para a próxima indagação, esta tendência se modifica quando levamos os grupos em consideração?
+
+```{r}
+daily_zero_rate_groupwise <- buscas %>%
+  group_by(day, group) %>%
+  summarise(zero_results_rate = sum(results == 0)/n())
+
+daily_zero_rate_groupwise %>% 
+  ggplot(aes(x = day, y = zero_results_rate, fill = group)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  expand_limits(y = c(0.1, 1.0)) +
+  scale_y_continuous(breaks = seq(from = 0.1, to = 1.0, by = 0.1)) +
+  labs(x = "Dia", y = "Zero Results Rate", fill = "Grupo")
+```
+
+A _zero results rate_ permanece na mesma taxa de valores quando levamos os grupos em consideração. O grupo A mais uma vez se sobressai nessa métrica, com mais buscas sem resultados em todos os dias.
+
+
+# 4. Qual a relação entre o tamanho da sessão e a quantidade de buscas realizada na mesma?
+
+Nossa intuição é de que quanto mais tempo as pessoas passam buscando por algo, mais buscas elas devem fazer. Será que esta ideia está correta?
+
+```{r}
+session_metrics <- buscas %>%
+  group_by(session_id) %>%
+  summarise(session_length = first(session_length),
+            number_of_searches = max(search_index))
+
+session_metrics %>% 
+  ggplot(aes(x = session_length, y = number_of_searches)) +
+  geom_point(alpha = .4, color = "#686de0")
+```
+
+O gráfico de dispersão parece mostrar que nossa intuição estava errada. Até parece existir algum nível de correlação entre as duas variáveis, porém muito fraca. É o que também nos confirmam os coeficientes de _pearson_, _spearmen_ e _kendall_.
+
+```{r}
+method <- c("pearson", "spearman", "kendall")
+cor <- c(
+  cor(session_metrics$session_length, session_metrics$number_of_searches, method = "pearson"),
+  cor(session_metrics$session_length, session_metrics$number_of_searches, method = "spearman"),
+  cor(session_metrics$session_length, session_metrics$number_of_searches, method = "kendall")  
+)
+
+correlations <- cbind.data.frame(method, cor)
+
+kable(correlations)
+```
+
+
+
